@@ -17,18 +17,21 @@ struct tree_t* new_tree_node(void) {
     return tree;
 }
 
-struct tree_t* tree_random(int min_height, float chance_to_continue) {
+struct tree_t* tree_random(int min_height, int max_height, float chance_to_continue) {
+    if (max_height == 0) {
+        return NULL;
+    }
     struct tree_t* tree = NULL;
     if (min_height > 0) {
         tree = new_tree_node();
         assert(tree != NULL);
-        tree->left_child = tree_random(min_height - 1, chance_to_continue);
-        tree->right_child = tree_random(min_height - 1, chance_to_continue);
+        tree->left_child = tree_random(min_height - 1, max_height - 1, chance_to_continue);
+        tree->right_child = tree_random(min_height - 1, max_height - 1, chance_to_continue);
     } else if (((float)rand() / (float)RAND_MAX ) < chance_to_continue) {
         tree = new_tree_node();
         assert(tree != NULL);
-        tree->left_child = tree_random(0, chance_to_continue);
-        tree->right_child = tree_random(0, chance_to_continue);
+        tree->left_child = tree_random(0, max_height - 1, chance_to_continue);
+        tree->right_child = tree_random(0, max_height - 1, chance_to_continue);
     }
     return tree;
 }
@@ -93,7 +96,7 @@ static struct tree_internal_t* to_internal(struct tree_t* tree) {
     struct tree_internal_t internal_tree = {
         .id = tree->id,
         .x_offset = 0,
-        .is_leaf = tree->left_child != NULL && tree->right_child != NULL,
+        .is_leaf = tree->left_child == NULL && tree->right_child == NULL,
     };
     if (!internal_tree.is_leaf) {
         internal_tree.left_child = to_internal(tree->left_child);
@@ -115,8 +118,8 @@ static struct tree_t* to_external(struct tree_internal_t* tree, int x_loc, int y
     const struct tree_t external_tree = {
         .id = tree->id,
         .x_pos = x_loc, .y_pos = y_loc,
-        .left_child = tree->is_leaf ? NULL : to_external(tree->left_child, x_loc, y_loc - 1),
-        .right_child = tree->is_leaf ? NULL : to_external(tree->right_child, x_loc, y_loc - 1)
+        .left_child = tree->is_leaf ? NULL : to_external(tree->left_child, x_loc, y_loc + 1),
+        .right_child = tree->is_leaf ? NULL : to_external(tree->right_child, x_loc, y_loc + 1)
     };
     memcpy(tree, &external_tree, sizeof(struct tree_t));
     return (struct tree_t*)tree;
@@ -135,29 +138,38 @@ static void next_left_contour(struct tree_internal_t** tree_ptr, int* offset_ptr
     struct tree_internal_t tree = **tree_ptr;
     if (tree.is_leaf) {
         *tree_ptr = tree.next_contour;
-        *offset_ptr += tree.next_contour ? tree.next_contour->x_offset : 0;
-    } else {
+        *offset_ptr += tree.next_contour ? tree.contour_offset : 0;
+    } else if (tree.left_child) {
         *tree_ptr = tree.left_child;
-        *offset_ptr += tree.left_child ? tree.left_child->x_offset : 0;
+        *offset_ptr += tree.left_child->x_offset;
+    } else {
+        assert(tree.right_child != NULL);
+        *tree_ptr = tree.right_child;
+        *offset_ptr += tree.right_child->x_offset;
     }
 }
 
 static void next_right_contour(struct tree_internal_t** tree_ptr, int* offset_ptr) {
+    assert(tree_ptr != NULL);
     if (*tree_ptr == NULL) {
         return;
     }
     struct tree_internal_t tree = **tree_ptr;
     if (tree.is_leaf) {
         *tree_ptr = tree.next_contour;
-        *offset_ptr += tree.next_contour ? tree.next_contour->x_offset : 0;
-    } else {
+        *offset_ptr += tree.next_contour ? tree.contour_offset : 0;
+    } else if (tree.right_child) {
         *tree_ptr = tree.right_child;
-        *offset_ptr += tree.right_child ? tree.right_child->x_offset : 0;
+        *offset_ptr += tree.right_child->x_offset;
+    } else {
+        assert(tree.left_child != NULL);
+        *tree_ptr = tree.left_child;
+        *offset_ptr += tree.left_child->x_offset;
     }
 }
 
 static bool is_end_of_contour(struct tree_internal_t* tree) {
-    return !tree || (tree->is_leaf && tree->next_contour == NULL);
+    return (tree->is_leaf && tree->next_contour == NULL);
 }
 
 void compute_offsets(struct tree_internal_t* tree) {
@@ -173,12 +185,15 @@ void compute_offsets(struct tree_internal_t* tree) {
     int left_left_offset = 0, left_right_offset = 0, right_left_offset = 0, right_right_offset = 0;
     struct tree_internal_t* left_left_tree = tree->left_child, *left_right_tree = tree->left_child,
                             *right_left_tree = tree->right_child, *right_right_tree = tree->right_child;
-    while (left_right_tree != NULL && right_left_tree != NULL) {
+    assert(!tree->left_child || tree->left_child->x_offset == 0);
+    assert(!tree->right_child || tree->right_child->x_offset == 0);
+    while (left_right_tree && right_left_tree) {
         // change the minimum offset if overlap
-        if (right_left_offset - left_left_offset < MINIMUM_NODE_OFFSET) {
-            required_offset = max_int(required_offset, right_left_offset - left_left_offset);
+        int gap = right_left_offset - left_right_offset;
+        if (gap < MINIMUM_NODE_OFFSET) {
+            int needed_separation = MINIMUM_NODE_OFFSET - gap;
+            required_offset = max_int(required_offset, needed_separation);
         }
-        // go to next layer
         if (is_end_of_contour(left_right_tree) || is_end_of_contour(right_left_tree)) {
             break;
         }
@@ -187,6 +202,7 @@ void compute_offsets(struct tree_internal_t* tree) {
         next_left_contour(&right_left_tree, &right_left_offset);
         next_right_contour(&right_right_tree, &right_right_offset);
     }
+
     required_offset = (required_offset + 1) / 2;
     if (tree->left_child) {
         tree->left_child->x_offset -= required_offset;
@@ -198,17 +214,17 @@ void compute_offsets(struct tree_internal_t* tree) {
     }
 
     // stitches the subtree contours together
-    next_right_contour(&left_right_tree, &left_right_offset);
-    next_left_contour(&right_left_tree, &right_left_offset);
-    if (left_left_tree != NULL && right_left_tree != NULL) {
-        assert(left_left_tree->is_leaf);
-        left_left_tree->next_contour = right_left_tree;
-        left_left_tree->contour_offset = right_left_offset - left_left_offset;
-    }
-    if (right_right_tree != NULL && left_right_tree != NULL) {
-        assert(left_right_tree->is_leaf);
+    // when the left tree is shorter stitch the left tree to the right tree
+    // otherwise if the right tree is shorter, stitch the right tree to the left tree
+    if (right_right_tree && is_end_of_contour(right_right_tree) && left_right_tree && !is_end_of_contour(left_right_tree)) {
+        next_right_contour(&left_right_tree, &left_right_offset);
         right_right_tree->next_contour = left_right_tree;
         right_right_tree->contour_offset = left_right_offset - right_right_offset;
+    }
+    if (left_left_tree && is_end_of_contour(left_left_tree) && right_left_tree && !is_end_of_contour(right_left_tree)) {
+        next_left_contour(&right_left_tree, &right_left_offset);
+        left_left_tree->next_contour = right_left_tree;
+        left_left_tree->contour_offset = right_left_offset - left_left_offset;
     }
 }
 
@@ -321,4 +337,20 @@ struct tree_t right_leaning_tree = {
     .id = 2,
     .left_child = NULL,
     .right_child = &singleton_tree
+};
+
+struct tree_t broken_contour_tree0 = {
+    .id = 0,
+};
+struct tree_t broken_contour_tree1 = {
+    .id = 1,
+    .right_child = &broken_contour_tree0,
+};
+struct tree_t broken_contour_tree2 = {
+    .id = 2,
+};
+struct tree_t broken_contour_tree = {
+    .id = 3,
+    .left_child = &broken_contour_tree1,
+    .right_child = &broken_contour_tree2
 };

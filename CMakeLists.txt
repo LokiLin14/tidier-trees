@@ -36,6 +36,10 @@ enable_testing()
 # Find CMocka
 find_package(cmocka REQUIRED)
 
+# Enable AddressSanitizer for tests
+set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -fsanitize=address -fno-omit-frame-pointer -g")
+set(CMAKE_EXE_LINKER_FLAGS_DEBUG "${CMAKE_EXE_LINKER_FLAGS_DEBUG} -fsanitize=address")
+
 add_executable(test_tidier_trees
         src/utils.c
         src/utils.h
