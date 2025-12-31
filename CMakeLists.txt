@@ -5,7 +5,11 @@ set(CMAKE_C_STANDARD 11)
 
 # Find SDL2
 find_package(SDL2 REQUIRED)
-include_directories(${SDL2_INCLUDE_DIRS})
+
+# Use pkg-config for SDL2_ttf and SDL2_image since they may not have CMake configs
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(SDL2_TTF REQUIRED SDL2_ttf)
+pkg_check_modules(SDL2_IMAGE REQUIRED SDL2_image)
 
 # Add your source files
 add_executable(tidier_trees
@@ -14,8 +18,17 @@ add_executable(tidier_trees
         src/utils.c
         src/utils.h
 )
-target_link_libraries(tidier_trees ${SDL2_LIBRARIES} m)
-target_include_directories(tidier_trees PRIVATE src)
+target_link_libraries(tidier_trees
+        ${SDL2_LIBRARIES}
+        ${SDL2_TTF_LIBRARIES}
+        ${SDL2_IMAGE_LIBRARIES}
+        m
+)
+target_include_directories(tidier_trees PRIVATE
+        src
+        ${SDL2_INCLUDE_DIRS}
+        ${CMAKE_SOURCE_DIR}/external/clay
+)
 
 # Testing
 enable_testing()
