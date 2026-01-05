@@ -128,7 +128,14 @@ int main(int argc, char *argv[]) {
     app_data_t app_data = { 0 };
 
     bool running = true;
+
+    // Control the framerate to not burn up the cpu
+    const int target_fps = 60;
+    const int frame_delay = 1000 / target_fps;
+
     while (running) {
+        int frame_start = (int)SDL_GetTicks();
+
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
@@ -180,6 +187,11 @@ int main(int argc, char *argv[]) {
         Clay_SDL2_Render(renderer, renderCommands, NULL);
 
         SDL_RenderPresent(renderer);
+
+        int frame_time = (int)SDL_GetTicks() - frame_start;
+        if (frame_delay > frame_time) {
+            SDL_Delay(frame_delay - frame_time);
+        }
     }
 
     tree_free(app_data.tree);
